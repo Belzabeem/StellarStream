@@ -20,4 +20,11 @@ export const config = {
   ),
 
   pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS ?? "5000", 10),
+
+  // HTTP API
+  apiPort: parseInt(process.env.API_PORT ?? "3001", 10),
+
+  // Default page size for cursor-based pagination
+  defaultPageSize: parseInt(process.env.DEFAULT_PAGE_SIZE ?? "20", 10),
+  maxPageSize: parseInt(process.env.MAX_PAGE_SIZE ?? "100", 10),
 };

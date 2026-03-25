@@ -5,7 +5,7 @@ use crate::types::{PermitArgs, StreamArgs};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::TokenClient,
-    Address, Env,
+    Address, Env, vec,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -863,12 +863,12 @@ fn test_create_batch_streams_success() {
     let receiver1 = Address::generate(&env);
     let receiver2 = Address::generate(&env);
     let token_admin = Address::generate(&env);
-    let (token_id, token_client, _) = create_token(&env, &token_admin);
+    let (token_id, token_client, asset_client) = create_token(&env, &token_admin);
 
     // Mint tokens to sender
-    token_client.mint(&sender, &1_000_000_000);
+    asset_client.mint(&sender, &1_000_000_000);
 
-    let (_, v2_client) = setup_v2(&env, &admin);
+    let (v2_address, v2_client) = setup_v2(&env, &admin);
 
     // Create batch of 2 streams
     let streams = vec![
@@ -917,7 +917,7 @@ fn test_create_batch_streams_success() {
 
     // Check tokens were transferred
     assert_eq!(token_client.balance(&sender), 700_000_000); // 1e9 - 3e8
-    assert_eq!(token_client.balance(&v2_client.contract_id), 300_000_000);
+    assert_eq!(token_client.balance(&v2_address), 300_000_000);
 }
 
 #[test]
@@ -950,7 +950,7 @@ fn test_create_batch_streams_max_limit() {
     }
 
     let result = v2_client.try_create_batch_streams(&streams);
-    assert_eq!(result, Err(Ok(ContractError::BatchTooLarge)));
+    assert_eq!(result, Err(Ok(Error::BatchTooLarge)));
 }
 
 #[test]
@@ -962,10 +962,10 @@ fn test_create_batch_streams_atomic_failure() {
     let sender = Address::generate(&env);
     let receiver = Address::generate(&env);
     let token_admin = Address::generate(&env);
-    let (token_id, token_client, _) = create_token(&env, &token_admin);
+    let (token_id, token_client, asset_client) = create_token(&env, &token_admin);
 
     // Mint insufficient tokens
-    token_client.mint(&sender, &100_000_000);
+    asset_client.mint(&sender, &100_000_000);
 
     let (_, v2_client) = setup_v2(&env, &admin);
 
@@ -1001,8 +1001,8 @@ fn test_create_batch_streams_atomic_failure() {
     assert!(result.is_err());
 
     // No streams should be created
-    assert!(v2_client.try_get_stream(&0).is_err());
-    assert!(v2_client.try_get_stream(&1).is_err());
+    assert!(v2_client.get_stream(&0).is_none());
+    assert!(v2_client.get_stream(&1).is_none());
 
     // Balance should be unchanged
     assert_eq!(token_client.balance(&sender), 100_000_000);

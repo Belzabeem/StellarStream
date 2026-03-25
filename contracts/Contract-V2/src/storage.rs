@@ -1,4 +1,4 @@
-use crate::errors::ContractError;
+use crate::contracterror::Error;
 use crate::types::StreamV2;
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 
@@ -58,7 +58,12 @@ pub fn set_admin(env: &Env, admin: &Address) {
 /// Return the first admin (legacy helper used by existing callers).
 pub fn get_admin(env: &Env) -> Address {
     bump_instance(env);
-    get_admin_list(env).first().expect("V2: AdminList not set")
+    get_admin_list(env).first().unwrap_or_else(|| env.panic_with_error(Error::ContractNotInitialized))
+}
+
+pub fn try_get_admin(env: &Env) -> Result<Address, Error> {
+    bump_instance(env);
+    get_admin_list(env).first().ok_or(Error::ContractNotInitialized)
 }
 
 /// Returns true if the admin list has been initialised.
@@ -86,7 +91,15 @@ pub fn get_admin_list(env: &Env) -> Vec<Address> {
     env.storage()
         .instance()
         .get(&DataKeyV2::AdminList)
-        .expect("V2: AdminList not set")
+        .unwrap_or_else(|| env.panic_with_error(Error::AdminListNotSet))
+}
+
+pub fn try_get_admin_list(env: &Env) -> Result<Vec<Address>, Error> {
+    bump_instance(env);
+    env.storage()
+        .instance()
+        .get(&DataKeyV2::AdminList)
+        .ok_or(Error::AdminListNotSet)
 }
 
 /// Return the approval threshold.
@@ -105,20 +118,20 @@ pub fn get_threshold(env: &Env) -> u32 {
 ///   1. Verifies every address in `signers` is in the admin list.
 ///   2. Calls `require_auth()` on each (host enforces the auth entry).
 ///   3. Checks `signers.len() >= threshold`.
-pub fn require_multisig(env: &Env, signers: &Vec<Address>) -> Result<(), ContractError> {
-    let admins = get_admin_list(env);
+pub fn require_multisig(env: &Env, signers: &Vec<Address>) -> Result<(), Error> {
+    let admins = try_get_admin_list(env)?;
     let threshold = get_threshold(env);
 
     // Every supplied signer must be a registered admin.
     for signer in signers.iter() {
         if !admins.contains(&signer) {
-            return Err(ContractError::NotEnoughSigners);
+            return Err(Error::NotEnoughSigners);
         }
         signer.require_auth();
     }
 
     if signers.len() < threshold {
-        return Err(ContractError::NotEnoughSigners);
+        return Err(Error::NotEnoughSigners);
     }
 
     Ok(())

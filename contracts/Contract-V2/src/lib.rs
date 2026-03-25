@@ -3,14 +3,14 @@
 use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, Symbol, Vec};
 
-mod errors;
+mod contracterror;
 mod storage;
 mod types;
 mod v1_interface;
 
-use errors::ContractError;
+use contracterror::Error;
 pub use types::{
-    BatchStreamsCreatedEvent, ContractPausedEvent, ContractUnpausedEvent, MigrationEvent, PermitArgs, PermitStreamCreatedEvent, StreamArgs,
+    AdminTransferredEvent, BatchStreamsCreatedEvent, ContractPausedEvent, ContractUnpausedEvent, MigrationEvent, PermitArgs, PermitStreamCreatedEvent, StreamArgs,
     StreamCancelledV2Event, StreamClaimV2Event, StreamCreatedV2Event, StreamMigratedEvent,
     StreamV2,
 };
@@ -25,9 +25,9 @@ impl Contract {
     // Init
     // ----------------------------------------------------------------
 
-    pub fn init(env: Env, admin: Address) -> Result<(), ContractError> {
+    pub fn init(env: Env, admin: Address) -> Result<(), Error> {
         if storage::has_admin(&env) {
-            return Err(ContractError::AlreadyInitialized);
+            return Err(Error::AlreadyInitialized);
         }
         storage::set_admin(&env, &admin);
         Ok(())
@@ -50,10 +50,10 @@ impl Contract {
         signers: Vec<Address>, // current admins authorising this change
         new_admins: Vec<Address>,
         new_threshold: u32,
-    ) -> Result<(), ContractError> {
+    ) -> Result<(), Error> {
         // Validate new config before touching state.
         if new_threshold == 0 || new_threshold > new_admins.len() {
-            return Err(ContractError::InvalidThreshold);
+            return Err(Error::InvalidThreshold);
         }
 
         // Require current multi-sig quorum.
@@ -78,8 +78,8 @@ impl Contract {
     /// The current admin must authorise this call. The new admin becomes the
     /// sole admin with threshold = 1, ready to be promoted to a full multisig
     /// via `set_admins` if desired.
-    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
-        let previous_admin = storage::get_admin(&env);
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let previous_admin = storage::try_get_admin(&env)?;
         previous_admin.require_auth();
 
         storage::set_admin(&env, &new_admin);
@@ -106,8 +106,8 @@ impl Contract {
     }
 
     /// Override the minimum for a specific asset. Admin-only.
-    pub fn set_min_value(env: Env, asset: Address, min: i128) -> Result<(), ContractError> {
-        storage::get_admin(&env).require_auth();
+    pub fn set_min_value(env: Env, asset: Address, min: i128) -> Result<(), Error> {
+        storage::try_get_admin(&env)?.require_auth();
         storage::set_min_value(&env, &asset, min);
         Ok(())
     }
@@ -121,7 +121,7 @@ impl Contract {
         v1_contract: Address,
         v1_stream_id: u64,
         caller: Address,
-    ) -> Result<u64, ContractError> {
+    ) -> Result<u64, Error> {
         Self::require_not_paused(&env)?;
         caller.require_auth();
 
@@ -129,20 +129,20 @@ impl Contract {
 
         let v1_stream = v1_client
             .try_get_stream(&v1_stream_id)
-            .map_err(|_| ContractError::NotStreamOwner)?
-            .map_err(|_| ContractError::NotStreamOwner)?;
+            .map_err(|_| Error::NotStreamOwner)?
+            .map_err(|_| Error::NotStreamOwner)?;
 
         if v1_stream.receiver != caller {
-            return Err(ContractError::NotStreamOwner);
+            return Err(Error::NotStreamOwner);
         }
 
         if v1_stream.cancelled || v1_stream.is_frozen || v1_stream.is_paused {
-            return Err(ContractError::StreamNotMigratable);
+            return Err(Error::StreamNotMigratable);
         }
 
         let now = env.ledger().timestamp();
         if now >= v1_stream.end_time {
-            return Err(ContractError::StreamNotMigratable);
+            return Err(Error::StreamNotMigratable);
         }
 
         let elapsed = {
@@ -158,13 +158,13 @@ impl Contract {
         let remaining = v1_stream.total_amount - unlocked;
 
         if remaining <= 0 {
-            return Err(ContractError::NothingToMigrate);
+            return Err(Error::NothingToMigrate);
         }
 
         v1_client
             .try_cancel(&v1_stream_id, &caller)
-            .map_err(|_| ContractError::StreamNotMigratable)?
-            .map_err(|_| ContractError::StreamNotMigratable)?;
+            .map_err(|_| Error::StreamNotMigratable)?
+            .map_err(|_| Error::StreamNotMigratable)?;
 
         let v2_stream_id = storage::next_stream_id(&env);
 
@@ -200,7 +200,7 @@ impl Contract {
 
         // Emit migration event for indexer
         env.events().publish(
-            Symbol::new(&env, "migrate"),
+            (Symbol::new(&env, "migrate"),),
             (v1_stream_id, v2_stream_id, caller.clone(), remaining),
         );
 
@@ -219,19 +219,19 @@ impl Contract {
     // Stream Operations (Issue #363 — Escalating Rates)
     // ----------------------------------------------------------------
 
-    pub fn withdraw(env: Env, stream_id: u64, receiver: Address) -> Result<i128, ContractError> {
+    pub fn withdraw(env: Env, stream_id: u64, receiver: Address) -> Result<i128, Error> {
         Self::require_not_paused(&env)?;
         receiver.require_auth();
 
         let mut stream =
-            storage::get_stream(&env, stream_id).ok_or(ContractError::StreamNotFound)?;
+            storage::get_stream(&env, stream_id).ok_or(Error::StreamNotFound)?;
 
         if stream.receiver != receiver {
-            return Err(ContractError::NotStreamOwner);
+            return Err(Error::NotStreamOwner);
         }
 
         if stream.cancelled {
-            return Err(ContractError::AlreadyCancelled);
+            return Err(Error::AlreadyCancelled);
         }
 
         let now = env.ledger().timestamp();
@@ -239,7 +239,7 @@ impl Contract {
         let to_withdraw = unlocked.saturating_sub(stream.withdrawn_amount);
 
         if to_withdraw <= 0 {
-            return Err(ContractError::NothingToMigrate); // TODO: Add NothingToWithdraw
+            return Err(Error::NothingToWithdraw);
         }
 
         // Perform transfer
@@ -271,19 +271,19 @@ impl Contract {
         Ok(to_withdraw)
     }
 
-    pub fn cancel(env: Env, stream_id: u64, caller: Address) -> Result<(), ContractError> {
+    pub fn cancel(env: Env, stream_id: u64, caller: Address) -> Result<(), Error> {
         Self::require_not_paused(&env)?;
         caller.require_auth();
 
         let mut stream =
-            storage::get_stream(&env, stream_id).ok_or(ContractError::StreamNotFound)?;
+            storage::get_stream(&env, stream_id).ok_or(Error::StreamNotFound)?;
 
         if stream.sender != caller && stream.receiver != caller {
-            return Err(ContractError::NotStreamOwner);
+            return Err(Error::NotStreamOwner);
         }
 
         if stream.cancelled {
-            return Err(ContractError::AlreadyCancelled);
+            return Err(Error::AlreadyCancelled);
         }
 
         let now = env.ledger().timestamp();
@@ -451,8 +451,8 @@ impl Contract {
         storage::bump_streams_ttl(&env, &ids)
     }
 
-    pub fn pause(env: Env) -> Result<(), ContractError> {
-        let admin = storage::get_admin(&env);
+    pub fn pause(env: Env) -> Result<(), Error> {
+        let admin = storage::try_get_admin(&env)?;
         admin.require_auth();
         storage::set_paused(&env, true);
         env.events().publish(
@@ -465,8 +465,8 @@ impl Contract {
         Ok(())
     }
 
-    pub fn unpause(env: Env) -> Result<(), ContractError> {
-        let admin = storage::get_admin(&env);
+    pub fn unpause(env: Env) -> Result<(), Error> {
+        let admin = storage::try_get_admin(&env)?;
         admin.require_auth();
         storage::set_paused(&env, false);
         env.events().publish(
@@ -483,14 +483,14 @@ impl Contract {
         storage::is_paused(&env)
     }
 
-    fn require_not_paused(env: &Env) -> Result<(), ContractError> {
+    fn require_not_paused(env: &Env) -> Result<(), Error> {
         if storage::is_paused(env) {
-            return Err(ContractError::ContractPaused);
+            return Err(Error::ContractPaused);
         }
         Ok(())
     }
 
-    pub fn create_stream(env: Env, args: StreamArgs) -> Result<u64, ContractError> {
+    pub fn create_stream(env: Env, args: StreamArgs) -> Result<u64, Error> {
         Self::require_not_paused(&env)?;
         args.sender.require_auth();
 
@@ -498,11 +498,11 @@ impl Contract {
             || args.cliff_time < args.start_time
             || args.cliff_time > args.end_time
         {
-            return Err(ContractError::InvalidTimeRange);
+            return Err(Error::InvalidTimeRange);
         }
 
         if args.total_amount < storage::get_min_value(&env, &args.token) {
-            return Err(ContractError::BelowDustThreshold);
+            return Err(Error::BelowDustThreshold);
         }
 
         let token_client = soroban_sdk::token::TokenClient::new(&env, &args.token);
@@ -555,23 +555,23 @@ impl Contract {
         env: Env,
         args: PermitArgs,
         signature: soroban_sdk::BytesN<64>,
-    ) -> Result<u64, ContractError> {
+    ) -> Result<u64, Error> {
         Self::require_not_paused(&env)?;
         let now = env.ledger().timestamp();
 
         if now > args.deadline {
-            return Err(ContractError::ExpiredDeadline);
+            return Err(Error::ExpiredDeadline);
         }
 
         if args.total_amount < storage::get_min_value(&env, &args.token) {
-            return Err(ContractError::BelowDustThreshold);
+            return Err(Error::BelowDustThreshold);
         }
 
         let nonce_key = (symbol_short!("NONCE"), args.sender_pubkey.clone());
         let stored_nonce: u64 = env.storage().instance().get(&nonce_key).unwrap_or(0u64);
 
         if args.nonce != stored_nonce {
-            return Err(ContractError::InvalidNonce);
+            return Err(Error::InvalidNonce);
         }
 
         let mut msg = soroban_sdk::Bytes::new(&env);
@@ -653,16 +653,16 @@ impl Contract {
     // Issue #367 — Batch Stream Creation
     // ----------------------------------------------------------------
 
-    pub fn create_batch_streams(env: Env, streams: Vec<StreamArgs>) -> Result<Vec<u64>, ContractError> {
+    pub fn create_batch_streams(env: Env, streams: Vec<StreamArgs>) -> Result<Vec<u64>, Error> {
         Self::require_not_paused(&env)?;
 
         // Validate batch size limit (max 10 streams)
         if streams.len() > 10 {
-            return Err(ContractError::BatchTooLarge);
+            return Err(Error::BatchTooLarge);
         }
 
         if streams.is_empty() {
-            return Err(ContractError::InvalidTimeRange); // Reuse error for empty batch
+            return Err(Error::InvalidTimeRange); // Reuse error for empty batch
         }
 
         // Validate all streams upfront to ensure atomicity
@@ -672,7 +672,7 @@ impl Contract {
         for args in streams.iter() {
             // All streams must have the same sender
             if args.sender != sender {
-                return Err(ContractError::InvalidTimeRange); // Reuse error for inconsistent sender
+                return Err(Error::UnauthorizedSender); 
             }
 
             // Validate time ranges
@@ -680,16 +680,16 @@ impl Contract {
                 || args.cliff_time < args.start_time
                 || args.cliff_time > args.end_time
             {
-                return Err(ContractError::InvalidTimeRange);
+                return Err(Error::InvalidTimeRange);
             }
 
             // Validate dust threshold
             if args.total_amount < storage::get_min_value(&env, &args.token) {
-                return Err(ContractError::BelowDustThreshold);
+                return Err(Error::BelowDustThreshold);
             }
 
             total_amount = total_amount.checked_add(args.total_amount)
-                .ok_or(ContractError::InvalidTimeRange)?; // Overflow protection
+                .ok_or(Error::InvalidTimeRange)?; // Overflow protection
         }
 
         // Require auth from the sender
@@ -751,7 +751,7 @@ impl Contract {
 
         // Emit batch creation summary event
         env.events().publish(
-            (symbol_short!("batch_create"), sender.clone()),
+            (Symbol::new(&env, "batch_create"), sender.clone()),
             BatchStreamsCreatedEvent {
                 stream_ids: stream_ids.clone(),
                 sender: sender.clone(),

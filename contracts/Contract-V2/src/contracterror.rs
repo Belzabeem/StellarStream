@@ -26,4 +26,5 @@ pub enum Error {
     NotExecutionTime = 22,
     OpNotScheduled = 23,
     NotBeneficiary = 24,
+    VaultPaused = 25,
 }

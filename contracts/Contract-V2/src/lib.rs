@@ -10,16 +10,21 @@ mod v1_interface;
 
 use contracterror::Error;
 pub use types::{
-    AdminTransferredEvent, BatchStreamsCreatedEvent, BeneficiaryTransferredV2Event,
-    ClawbackRebalanceEvent, ContractPausedEvent, ContractUnpausedEvent, MigrationEvent, Operation,
-    OperationExecutedEvent, OperationScheduledEvent, PermitArgs, PermitStreamCreatedEvent,
-    StreamArgs, StreamBatchEntry, StreamCancelledV2Event, StreamClaimV2Event, StreamCreatedV2Event,
-    StreamMigratedEvent, StreamStatus, StreamToppedUpEvent, StreamV2,
+    AdminTransferredEvent, BatchStreamsCreatedEvent, BeneficiaryTransferredV2Event, ClawbackRebalanceEvent,
+    ContractPausedEvent, ContractUnpausedEvent, MigrationEvent, Operation, OperationExecutedEvent,
+    OperationScheduledEvent, PermitArgs, PermitStreamCreatedEvent, StreamArgs, StreamCancelledV2Event,
+    StreamClaimV2Event, StreamCreatedV2Event, StreamMigratedEvent, StreamToppedUpEvent, StreamV2,
 };
 use v1_interface::Client as V1Client;
 
 #[contract]
 pub struct Contract;
+
+#[soroban_sdk::contractclient(name = "VaultClient")]
+pub trait VaultTrait {
+    fn deposit(env: Env, amount: i128);
+    fn withdraw(env: Env, amount: i128) -> i128; // returns actual amount withdrawn
+}
 
 #[contractimpl]
 impl Contract {
@@ -90,7 +95,6 @@ impl Contract {
                 timestamp: env.ledger().timestamp(),
             },
         );
-
         Ok(())
     }
 
@@ -180,7 +184,7 @@ impl Contract {
         let v2_stream = StreamV2 {
             sender: v1_stream.sender.clone(),
             receiver: caller.clone(),
-            beneficiary: caller.clone(),
+            beneficiary: caller.clone(), // Initial beneficiary is the receiver
             token: v1_stream.token.clone(),
             total_amount: remaining,
             start_time: now,
@@ -192,6 +196,9 @@ impl Contract {
             v1_stream_id,
             step_duration: 0,
             multiplier_bps: 0,
+            vault_address: None,
+            yield_enabled: false,
+            is_pending: false,
         };
 
         storage::set_stream(&env, v2_stream_id, &v2_stream);
@@ -267,15 +274,15 @@ impl Contract {
     // Stream Operations (Issue #363 — Escalating Rates)
     // ----------------------------------------------------------------
 
-    pub fn withdraw(env: Env, stream_id: u64, receiver: Address) -> Result<i128, Error> {
+    pub fn withdraw(env: Env, stream_id: u64, beneficiary: Address) -> Result<i128, Error> {
         Self::require_not_paused(&env)?;
         receiver.require_auth();
 
         let mut stream =
             storage::get_stream(&env, stream_id).ok_or(Error::StreamNotFound)?;
 
-        if stream.receiver != receiver {
-            return Err(Error::NotStreamOwner);
+        if stream.beneficiary != beneficiary {
+            return Err(Error::NotBeneficiary);
         }
 
         if stream.cancelled {
@@ -290,6 +297,23 @@ impl Contract {
             return Err(Error::NothingToWithdraw);
         }
 
+        // If Yield-Bearing, withdraw principal from Vault
+        if stream.yield_enabled {
+            if let Some(vault_addr) = &stream.vault_address {
+                let vault_client = VaultClient::new(&env, vault_addr);
+                // Attempt to withdraw from vault, catching if it's paused/fails
+                let result = vault_client.try_withdraw(&to_withdraw);
+
+                if result.is_err() {
+                    stream.is_pending = true;
+                    storage::set_stream(&env, stream_id, &stream);
+                    // Return Ok(0) to persist the 'is_pending' state change.
+                    // Returning Err automatically rolls back state in Soroban.
+                    return Ok(0);
+                }
+            }
+        }
+
         // Perform transfer
         let token_client = soroban_sdk::token::TokenClient::new(&env, &stream.token);
         token_client.transfer(
@@ -300,6 +324,7 @@ impl Contract {
 
         // Update state
         stream.withdrawn_amount += to_withdraw;
+        stream.is_pending = false; // Successfully withdrawn, any previous pending status cleared
         storage::set_stream(&env, stream_id, &stream);
 
         // Update analytics (TVL decreased)
@@ -339,6 +364,21 @@ impl Contract {
         let unlocked = Self::calculate_unlocked_internal(&stream, now);
         let to_receiver = unlocked.saturating_sub(stream.withdrawn_amount);
         let to_sender = stream.total_amount.saturating_sub(unlocked);
+        let total_remaining = to_receiver + to_sender;
+
+        // If Yield-Bearing, withdraw total remaining from Vault
+        if stream.yield_enabled {
+            if let Some(vault_addr) = &stream.vault_address {
+                let vault_client = VaultClient::new(&env, vault_addr);
+                let result = vault_client.try_withdraw(&total_remaining);
+
+                if result.is_err() {
+                    stream.is_pending = true;
+                    storage::set_stream(&env, stream_id, &stream);
+                    return Err(Error::VaultPaused);
+                }
+            }
+        }
 
         stream.withdrawn_amount = unlocked;
         stream.cancelled = true;
@@ -530,6 +570,29 @@ impl Contract {
         storage::bump_streams_ttl(&env, &ids)
     }
 
+    // ----------------------------------------------------------------
+    // Governance: Stream-Weighted Voting Power
+    // ----------------------------------------------------------------
+
+    /// Calculate the total value currently locked in active streams for a user.
+    /// This represents the user's "skin in the game" for governance purposes.
+    pub fn get_active_volume(env: Env, user: Address) -> i128 {
+        let total_streams = storage::get_health(&env).total_v2_streams;
+        let mut total_locked: i128 = 0;
+
+        for i in 0..total_streams {
+            if let Some(stream) = storage::get_stream(&env, i) {
+                if !stream.cancelled {
+                    if stream.sender == user || stream.receiver == user {
+                        let locked = stream.total_amount.saturating_sub(stream.withdrawn_amount);
+                        total_locked = total_locked.saturating_add(locked);
+                    }
+                }
+            }
+        }
+        total_locked
+    }
+
     pub fn pause(env: Env) -> Result<(), Error> {
         let admin = storage::try_get_admin(&env)?;
         admin.require_auth();
@@ -560,6 +623,68 @@ impl Contract {
 
     pub fn is_paused(env: Env) -> bool {
         storage::is_paused(&env)
+    }
+
+    // ----------------------------------------------------------------
+    // Compliance: Asset "Clawback" Support Logic
+    // ----------------------------------------------------------------
+
+    /// Compare the actual token balance in the contract with the sum of all
+    /// active stream remaining balances.
+    pub fn check_balance_integrity(env: Env, token: Address) -> (i128, i128) {
+        let total_streams = storage::get_health(&env).total_v2_streams;
+        let mut sum_remaining: i128 = 0;
+
+        for i in 0..total_streams {
+            if let Some(stream) = storage::get_stream(&env, i) {
+                if !stream.cancelled && stream.token == token {
+                    let remaining = stream.total_amount.saturating_sub(stream.withdrawn_amount);
+                    sum_remaining = sum_remaining.saturating_add(remaining);
+                }
+            }
+        }
+
+        let token_client = soroban_sdk::token::TokenClient::new(&env, &token);
+        let contract_balance = token_client.balance(&env.current_contract_address());
+        (contract_balance, sum_remaining)
+    }
+
+    /// Proportionally reduce all active streams for a token if the contract
+    /// balance is less than the total committed amount.
+    pub fn rebalance_after_clawback(env: Env, token: Address) -> Result<(), Error> {
+        let admin = storage::try_get_admin(&env)?;
+        admin.require_auth();
+
+        let (balance, sum_remaining) = Self::check_balance_integrity(env.clone(), token.clone());
+        if balance >= sum_remaining || sum_remaining == 0 {
+            return Ok(());
+        }
+
+        let reduction_factor_bps = (balance * 10000) / sum_remaining;
+        let total_streams = storage::get_health(&env).total_v2_streams;
+        for i in 0..total_streams {
+            if let Some(mut stream) = storage::get_stream(&env, i) {
+                if !stream.cancelled && stream.token == token {
+                    let old_remaining = stream.total_amount.saturating_sub(stream.withdrawn_amount);
+                    let new_remaining = (old_remaining * reduction_factor_bps) / 10000;
+                    stream.total_amount = stream.withdrawn_amount + new_remaining;
+                    storage::set_stream(&env, i, &stream);
+                }
+            }
+        }
+
+        env.events().publish(
+            (symbol_short!("rebalance"), token.clone()),
+            ClawbackRebalanceEvent {
+                token,
+                total_remaining: sum_remaining,
+                contract_balance: balance,
+                reduction_factor_bps,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+
+        Ok(())
     }
 
     fn require_not_paused(env: &Env) -> Result<(), Error> {
@@ -593,6 +718,15 @@ impl Contract {
 
         let stream_id = storage::next_stream_id(&env);
 
+        let mut vault_used = None;
+        if args.yield_enabled {
+            if let Some(vault_addr) = &args.vault_address {
+                let vault_client = VaultClient::new(&env, vault_addr);
+                vault_client.deposit(&args.total_amount);
+                vault_used = Some(vault_addr.clone());
+            }
+        }
+
         let stream = StreamV2 {
             sender: args.sender.clone(),
             receiver: args.receiver.clone(),
@@ -608,6 +742,9 @@ impl Contract {
             v1_stream_id: 0,
             step_duration: args.step_duration,
             multiplier_bps: args.multiplier_bps,
+            vault_address: vault_used,
+            yield_enabled: args.yield_enabled,
+            is_pending: false,
         };
 
         storage::set_stream(&env, stream_id, &stream);
@@ -708,6 +845,9 @@ impl Contract {
             v1_stream_id: 0,
             step_duration: args.step_duration,
             multiplier_bps: args.multiplier_bps,
+            vault_address: None, // No vault support by permit yet
+            yield_enabled: false,
+            is_pending: false,
         };
 
         storage::set_stream(&env, stream_id, &stream);
@@ -806,6 +946,9 @@ impl Contract {
                 v1_stream_id: 0,
                 step_duration: args.step_duration,
                 multiplier_bps: args.multiplier_bps,
+                vault_address: None, // Batch creation default to no vault for now
+                yield_enabled: false,
+                is_pending: false,
             };
 
             storage::set_stream(&env, stream_id, &stream);

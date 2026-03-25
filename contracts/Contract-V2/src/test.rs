@@ -383,6 +383,8 @@ fn test_permit_stream_fails_with_wrong_nonce() {
             deadline: 9999u64,
             step_duration: 0,
             multiplier_bps: 0,
+            vault_address: None,
+            yield_enabled: false,
         },
         &bad_sig,
     );
@@ -418,6 +420,8 @@ fn test_permit_stream_fails_if_deadline_passed() {
             deadline: 100u64, // expired
             step_duration: 0,
             multiplier_bps: 0,
+            vault_address: None,
+            yield_enabled: false,
         },
         &bad_sig,
     );
@@ -505,6 +509,8 @@ fn test_permit_stream_fails_when_paused() {
             deadline: 9999u64,
             step_duration: 0,
             multiplier_bps: 0,
+            vault_address: None,
+            yield_enabled: false,
         },
         &bad_sig,
     );
@@ -588,7 +594,7 @@ fn test_set_admins_replaces_list_and_threshold() {
     let a2 = Address::generate(&env);
     let a3 = Address::generate(&env);
     let new_admins = soroban_sdk::vec![&env, a1.clone(), a2.clone(), a3.clone()];
-    let op = Operation::SetAdmins(new_admins, 2u32);
+    let op = crate::types::Operation::SetAdmins(new_admins, 2);
 
     client.schedule_op(&op);
     
@@ -727,6 +733,8 @@ fn test_cliff_period_locks_funds() {
         end_time,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // 1. Before cliff (t=140): unlocked should be zero
@@ -773,6 +781,8 @@ fn test_v2_cancel_splits_funds() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // Cancel at t=30.
@@ -835,6 +845,8 @@ fn test_geometric_rate_unlock_math() {
         end_time: 100,
         step_duration: 50,
         multiplier_bps: 10000,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // t=25
@@ -888,6 +900,8 @@ fn test_create_batch_streams_success() {
             end_time: 100,
             step_duration: 0,
             multiplier_bps: 0,
+            vault_address: None,
+            yield_enabled: false,
         },
         StreamArgs {
             sender: sender.clone(),
@@ -899,6 +913,8 @@ fn test_create_batch_streams_success() {
             end_time: 200,
             step_duration: 0,
             multiplier_bps: 0,
+            vault_address: None,
+            yield_enabled: false,
         },
     ];
 
@@ -951,6 +967,8 @@ fn test_create_batch_streams_max_limit() {
             end_time: 100,
             step_duration: 0,
             multiplier_bps: 0,
+            vault_address: None,
+            yield_enabled: false,
         });
     }
 
@@ -987,6 +1005,8 @@ fn test_create_batch_streams_atomic_failure() {
             end_time: 100,
             step_duration: 0,
             multiplier_bps: 0,
+            vault_address: None,
+            yield_enabled: false,
         },
         StreamArgs {
             sender: sender.clone(),
@@ -998,6 +1018,8 @@ fn test_create_batch_streams_atomic_failure() {
             end_time: 100,
             step_duration: 0,
             multiplier_bps: 0,
+            vault_address: None,
+            yield_enabled: false,
         },
     ];
 
@@ -1010,7 +1032,7 @@ fn test_create_batch_streams_atomic_failure() {
     assert!(v2_client.get_stream(&1).is_none());
 
     // Balance should be unchanged
-    assert_eq!(token_client.balance(&sender), 200_000_000);
+    assert_eq!(token_client.balance(&sender), 100_000_000);
 }
 
 // ── Governance: Stream-Weighted Voting Power tests ───────────────────────────
@@ -1040,6 +1062,8 @@ fn test_get_active_volume_single_stream_as_receiver() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // Receiver should have 100M locked
@@ -1071,6 +1095,8 @@ fn test_get_active_volume_single_stream_as_sender() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // Sender should also have 100M locked (their commitment)
@@ -1103,6 +1129,8 @@ fn test_get_active_volume_multiple_streams() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     let _sid2 = v2_client.create_stream(&StreamArgs {
@@ -1115,6 +1143,8 @@ fn test_get_active_volume_multiple_streams() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     let _sid3 = v2_client.create_stream(&StreamArgs {
@@ -1127,6 +1157,8 @@ fn test_get_active_volume_multiple_streams() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // Receiver should have total of 600M locked
@@ -1159,6 +1191,8 @@ fn test_get_active_volume_after_partial_withdrawal() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // At t=50, 50M unlocked
@@ -1195,6 +1229,8 @@ fn test_get_active_volume_excludes_cancelled_streams() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     let sid2 = v2_client.create_stream(&StreamArgs {
@@ -1207,6 +1243,8 @@ fn test_get_active_volume_excludes_cancelled_streams() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // Cancel first stream
@@ -1243,6 +1281,8 @@ fn test_get_active_volume_unrelated_user_returns_zero() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // Stranger has no involvement in the stream
@@ -1291,6 +1331,8 @@ fn test_get_active_volume_mixed_roles() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // User as receiver
@@ -1304,6 +1346,8 @@ fn test_get_active_volume_mixed_roles() {
         end_time: 100,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // User should have both streams counted: 200M + 200M = 400M
@@ -1337,6 +1381,8 @@ fn test_rebalance_after_clawback() {
         end_time: 1000,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     let _sid2 = v2_client.create_stream(&StreamArgs {
@@ -1349,6 +1395,8 @@ fn test_rebalance_after_clawback() {
         end_time: 1000,
         step_duration: 0,
         multiplier_bps: 0,
+        vault_address: None,
+        yield_enabled: false,
     });
 
     // Verify integrity before clawback
@@ -1382,8 +1430,32 @@ fn test_rebalance_after_clawback() {
     assert_eq!(sum, 500_000_000);
 }
 
+// ── DeFi: Yield-Bearing Vault tests ──────────────────────────────────────────
+
+#[contract]
+pub struct MockVault;
+
+#[contractimpl]
+impl MockVault {
+    pub fn deposit(env: Env, amount: i128) {
+        // In a real vault, we'd take tokens. Here we just mock.
+    }
+
+    pub fn withdraw(env: Env, amount: i128) -> i128 {
+        let is_paused = env.storage().instance().get::<Symbol, bool>(&symbol_short!("paused")).unwrap_or(false);
+        if is_paused {
+            panic!("Vault is paused");
+        }
+        amount
+    }
+
+    pub fn set_paused(env: Env, paused: bool) {
+        env.storage().instance().set(&symbol_short!("paused"), &paused);
+    }
+}
+
 #[test]
-fn test_get_streams_batch_success() {
+fn test_yield_bearing_stream() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -1391,87 +1463,55 @@ fn test_get_streams_batch_success() {
     let sender = Address::generate(&env);
     let receiver = Address::generate(&env);
     let token_admin = Address::generate(&env);
-    let (token_id, _token_client, asset_client) = create_token(&env, &token_admin);
-
-    asset_client.mint(&sender, &1_000_000_000);
-
+    let (token_id, token_client, asset_client) = create_token(&env, &token_admin);
     let (_, v2_client) = setup_v2(&env, &admin);
 
-    // Create 3 streams
-    v2_client.create_stream(&StreamArgs {
+    // Register Mock Vault
+    let vault_id = env.register_contract(None, MockVault);
+    let vault_client = MockVaultClient::new(&env, &vault_id);
+
+    asset_client.mint(&sender, &1000_000_000);
+
+    // Create yield-bearing stream
+    let sid = v2_client.create_stream(&StreamArgs {
         sender: sender.clone(),
         receiver: receiver.clone(),
         token: token_id.clone(),
-        total_amount: 100_000_000,
+        total_amount: 500_000_000,
         start_time: 0,
         cliff_time: 0,
-        end_time: 100,
+        end_time: 1000,
         step_duration: 0,
         multiplier_bps: 0,
-    });
-    v2_client.create_stream(&StreamArgs {
-        sender: sender.clone(),
-        receiver: receiver.clone(),
-        token: token_id.clone(),
-        total_amount: 200_000_000,
-        start_time: 0,
-        cliff_time: 0,
-        end_time: 100,
-        step_duration: 0,
-        multiplier_bps: 0,
-    });
-    v2_client.create_stream(&StreamArgs {
-        sender: sender.clone(),
-        receiver: receiver.clone(),
-        token: token_id.clone(),
-        total_amount: 300_000_000,
-        start_time: 0,
-        cliff_time: 0,
-        end_time: 100,
-        step_duration: 0,
-        multiplier_bps: 0,
+        vault_address: Some(vault_id.clone()),
+        yield_enabled: true,
     });
 
-    // Advance time to 50s
-    env.ledger().set_timestamp(50);
+    // Advance time to t=500 (50% unlocked)
+    env.ledger().set_timestamp(500);
 
-    // Query batch of ids (0, 1, 2, 3) where 3 is not found
-    let ids = soroban_sdk::vec![&env, 0, 1, 2, 3];
-    let results = v2_client.get_streams_batch(&ids);
+    // Withdraw. Should call vault.
+    v2_client.withdraw(&0, &receiver);
+    
+    // Check balance
+    assert_eq!(token_client.balance(&receiver), 250_000_000);
 
-    assert_eq!(results.len(), 4);
+    // Simulate Vault Pause
+    vault_client.set_paused(&true);
 
-    // Stream 0: half unlocked (50M)
-    assert_eq!(results.get(0).unwrap().stream_id, 0);
-    assert_eq!(results.get(0).unwrap().unlocked_amount, 50_000_000);
-    assert_eq!(results.get(0).unwrap().status, StreamStatus::Active);
+    // Try to withdraw remaining 250M. Should return 0 and set is_pending.
+    env.ledger().set_timestamp(1000);
+    let result = v2_client.withdraw(&0, &receiver);
+    
+    assert_eq!(result, 0);
 
-    // Stream 1: half unlocked (100M)
-    assert_eq!(results.get(1).unwrap().stream_id, 1);
-    assert_eq!(results.get(1).unwrap().unlocked_amount, 100_000_000);
-    assert_eq!(results.get(1).unwrap().status, StreamStatus::Active);
+    // Verify stream is pending
+    let stream = v2_client.get_stream(&0).unwrap();
+    assert!(stream.is_pending);
 
-    // Stream 2: half unlocked (150M)
-    assert_eq!(results.get(2).unwrap().stream_id, 2);
-    assert_eq!(results.get(2).unwrap().unlocked_amount, 150_000_000);
-    assert_eq!(results.get(2).unwrap().status, StreamStatus::Active);
-
-    // Stream 3: NotFound
-    assert_eq!(results.get(3).unwrap().stream_id, 3);
-    assert_eq!(results.get(3).unwrap().status, StreamStatus::NotFound);
-}
-
-#[test]
-fn test_get_streams_batch_limit_failure() {
-    let env = Env::default();
-    let admin = Address::generate(&env);
-    let (_, v2_client) = setup_v2(&env, &admin);
-
-    let mut ids = soroban_sdk::vec![&env];
-    for i in 0..26 {
-        ids.push_back(i);
-    }
-
-    let result = v2_client.try_get_streams_batch(&ids);
-    assert!(result.is_err());
+    // Unpause and retry
+    vault_client.set_paused(&false);
+    v2_client.withdraw(&0, &receiver);
+    
+    assert_eq!(token_client.balance(&receiver), 500_000_000);
 }

@@ -11,8 +11,8 @@ pub enum ContractError {
     InvalidSignature = 5,
     ExpiredDeadline = 6,
     InvalidNonce = 7,
-    // Issue #400
-    InvalidThreshold = 8,   // threshold == 0 or threshold > len(admins)
-    NotEnoughSigners = 9,   // fewer than threshold admins authorised the tx
-    BelowDustThreshold = 8,
+    InvalidThreshold = 8,
+    NotEnoughSigners = 9,
+    BelowDustThreshold = 10,
+    ContractPaused = 11,
 }

@@ -13,21 +13,22 @@ use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 #[derive(Clone, Debug, PartialEq)]
 pub enum DataKeyV2 {
     // -- instance() keys -----------------------------------------
-    Admin,       // kept for discriminant stability (no longer written)
-    Stream(u64), // individual stream record
+    Admin,       // 0
+    Stream(u64), // 1
 
     // Issue #400 — multi-sig admin
-    AdminList, // Vec<Address> — the current signer set
-    Threshold, // u32          — minimum approvals required
-    // -- Stream storage ------------------------------------------
-    /// Individual stream record, keyed by stream ID.
-    Stream(u64),
+    AdminList, // 2
+    Threshold, // 3
+
+    // -- Paused state --------------------------------------------
+    Paused, // 4
 
     // -- Dust threshold ------------------------------------------
     /// Per-asset minimum stream amount. Falls back to DEFAULT_MIN_VALUE.
-    MinValue(Address),
+    MinValue(Address), // 5
+
     // -- Analytics -----------------------------------------------
-    UserSeen(Address),
+    UserSeen(Address), // 6
 }
 
 /// Global stream counter.
@@ -57,9 +58,7 @@ pub fn set_admin(env: &Env, admin: &Address) {
 /// Return the first admin (legacy helper used by existing callers).
 pub fn get_admin(env: &Env) -> Address {
     bump_instance(env);
-    get_admin_list(env)
-        .first()
-        .expect("V2: AdminList not set")
+    get_admin_list(env).first().expect("V2: AdminList not set")
 }
 
 /// Returns true if the admin list has been initialised.
@@ -74,9 +73,7 @@ pub fn has_admin(env: &Env) -> bool {
 /// Atomically replace the admin set and threshold.
 /// Validation (threshold bounds) is enforced in lib.rs.
 pub fn set_admin_list_raw(env: &Env, admins: &Vec<Address>, threshold: u32) {
-    env.storage()
-        .instance()
-        .set(&DataKeyV2::AdminList, admins);
+    env.storage().instance().set(&DataKeyV2::AdminList, admins);
     env.storage()
         .instance()
         .set(&DataKeyV2::Threshold, &threshold);
@@ -108,10 +105,7 @@ pub fn get_threshold(env: &Env) -> u32 {
 ///   1. Verifies every address in `signers` is in the admin list.
 ///   2. Calls `require_auth()` on each (host enforces the auth entry).
 ///   3. Checks `signers.len() >= threshold`.
-pub fn require_multisig(
-    env: &Env,
-    signers: &Vec<Address>,
-) -> Result<(), ContractError> {
+pub fn require_multisig(env: &Env, signers: &Vec<Address>) -> Result<(), ContractError> {
     let admins = get_admin_list(env);
     let threshold = get_threshold(env);
 
@@ -175,13 +169,25 @@ pub fn update_stats(env: &Env, amount: i128, sender: &Address, receiver: &Addres
     // Update User Count
     let mut user_count: u32 = env.storage().instance().get(&V2_USER_COUNT).unwrap_or(0);
 
-    if !env.storage().persistent().has(&DataKeyV2::UserSeen(sender.clone())) {
-        env.storage().persistent().set(&DataKeyV2::UserSeen(sender.clone()), &true);
+    if !env
+        .storage()
+        .persistent()
+        .has(&DataKeyV2::UserSeen(sender.clone()))
+    {
+        env.storage()
+            .persistent()
+            .set(&DataKeyV2::UserSeen(sender.clone()), &true);
         user_count += 1;
     }
 
-    if !env.storage().persistent().has(&DataKeyV2::UserSeen(receiver.clone())) {
-        env.storage().persistent().set(&DataKeyV2::UserSeen(receiver.clone()), &true);
+    if !env
+        .storage()
+        .persistent()
+        .has(&DataKeyV2::UserSeen(receiver.clone()))
+    {
+        env.storage()
+            .persistent()
+            .set(&DataKeyV2::UserSeen(receiver.clone()), &true);
         user_count += 1;
     }
 
@@ -196,6 +202,24 @@ pub fn get_health(env: &Env) -> crate::types::ProtocolHealthV2 {
         active_v2_users: env.storage().instance().get(&V2_USER_COUNT).unwrap_or(0),
         total_v2_streams: env.storage().instance().get(&STREAM_COUNT_V2).unwrap_or(0),
     }
+}
+
+// ----------------------------------------------------------------
+// instance() helpers — Paused
+// ----------------------------------------------------------------
+
+/// Returns true if the contract is currently paused.
+pub fn is_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKeyV2::Paused)
+        .unwrap_or(false)
+}
+
+/// Sets the contract's paused state.
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKeyV2::Paused, &paused);
+    bump_instance(env);
 }
 
 // ----------------------------------------------------------------
@@ -223,6 +247,8 @@ pub fn bump_streams_ttl(env: &Env, ids: &soroban_sdk::Vec<u64>) -> u32 {
         }
     }
     count
+}
+
 // ----------------------------------------------------------------
 // Dust threshold helpers
 // ----------------------------------------------------------------

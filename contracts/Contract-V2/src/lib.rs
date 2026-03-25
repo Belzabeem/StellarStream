@@ -9,7 +9,10 @@ mod types;
 mod v1_interface;
 
 use errors::ContractError;
-use types::{PermitStreamCreatedEvent, StreamMigratedEvent, StreamV2};
+use types::{
+    ContractPausedEvent, ContractUnpausedEvent, PermitStreamCreatedEvent, StreamMigratedEvent,
+    StreamV2,
+};
 use v1_interface::Client as V1Client;
 
 #[contract]
@@ -67,6 +70,9 @@ impl Contract {
     /// Return the current approval threshold.
     pub fn get_threshold(env: Env) -> u32 {
         storage::get_threshold(&env)
+    }
+
+    // ----------------------------------------------------------------
     // Issue #396 — Dust Threshold
     // ----------------------------------------------------------------
 
@@ -92,6 +98,7 @@ impl Contract {
         v1_stream_id: u64,
         caller: Address,
     ) -> Result<u64, ContractError> {
+        Self::require_not_paused(&env)?;
         caller.require_auth();
 
         let v1_client = V1Client::new(&env, &v1_contract);
@@ -174,7 +181,7 @@ impl Contract {
     pub fn get_v2_protocol_health(env: Env) -> types::ProtocolHealthV2 {
         storage::get_health(&env)
     }
-    
+
     // ----------------------------------------------------------------
     // Issue #404 — Bulk TTL Extension
     // ----------------------------------------------------------------
@@ -189,6 +196,55 @@ impl Contract {
     /// (IDs that no longer exist are silently skipped).
     pub fn bump_active_streams_ttl(env: Env, ids: Vec<u64>) -> u32 {
         storage::bump_streams_ttl(&env, &ids)
+    }
+
+    // ----------------------------------------------------------------
+    // Emergency Pause (Issue #364)
+    // ----------------------------------------------------------------
+
+    pub fn pause(env: Env) -> Result<(), ContractError> {
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+
+        storage::set_paused(&env, true);
+
+        env.events().publish(
+            (symbol_short!("pause"), admin.clone()),
+            ContractPausedEvent {
+                admin,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+
+        Ok(())
+    }
+
+    pub fn unpause(env: Env) -> Result<(), ContractError> {
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+
+        storage::set_paused(&env, false);
+
+        env.events().publish(
+            (symbol_short!("unpause"), admin.clone()),
+            ContractUnpausedEvent {
+                admin,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+
+        Ok(())
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        storage::is_paused(&env)
+    }
+
+    fn require_not_paused(env: &Env) -> Result<(), ContractError> {
+        if storage::is_paused(env) {
+            return Err(ContractError::ContractPaused);
+        }
+        Ok(())
     }
 
     // ----------------------------------------------------------------
@@ -207,6 +263,7 @@ impl Contract {
         deadline: u64,
         signature: soroban_sdk::BytesN<64>,
     ) -> Result<u64, ContractError> {
+        Self::require_not_paused(&env)?;
         let now = env.ledger().timestamp();
 
         // ── Guard: deadline ──────────────────────────────────────────

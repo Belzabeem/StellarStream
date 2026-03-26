@@ -38,32 +38,44 @@ const CONTRACT_ERROR_MAP: Record<number, Omit<DecodedError, "raw">> = {
   },
   4: {
     title: "Stream Not Active",
+    description:
+      "The stream is not in an active state. It may be paused, cancelled, or completed.",
     description: "The stream is not in an active state. It may be paused, cancelled, or completed.",
     severity: "error",
   },
   5: {
     title: "Insufficient Balance",
+    description:
+      "The sender's balance is too low to fund this stream or withdrawal.",
     description: "The sender's balance is too low to fund this stream or withdrawal.",
     severity: "error",
     docsUrl: "https://docs.stellarstream.io/errors/insufficient-balance",
   },
   6: {
     title: "Invalid Amount",
+    description:
+      "The specified amount is zero, negative, or exceeds the allowed maximum.",
     description: "The specified amount is zero, negative, or exceeds the allowed maximum.",
     severity: "error",
   },
   7: {
     title: "Invalid Duration",
+    description:
+      "The stream duration is outside the permitted range (min 60s, max 10 years).",
     description: "The stream duration is outside the permitted range (min 60s, max 10 years).",
     severity: "error",
   },
   8: {
     title: "Invalid Recipient",
+    description:
+      "The recipient address is malformed or is the same as the sender.",
     description: "The recipient address is malformed or is the same as the sender.",
     severity: "error",
   },
   9: {
     title: "Protocol Paused",
+    description:
+      "The protocol is currently in Emergency Mode. No new operations are permitted.",
     description: "The protocol is currently in Emergency Mode. No new operations are permitted.",
     severity: "fatal",
     docsUrl: "https://docs.stellarstream.io/errors/emergency-mode",
@@ -75,6 +87,8 @@ const CONTRACT_ERROR_MAP: Record<number, Omit<DecodedError, "raw">> = {
   },
   11: {
     title: "Overflow",
+    description:
+      "An arithmetic overflow occurred during rate or balance calculation.",
     description: "An arithmetic overflow occurred during rate or balance calculation.",
     severity: "fatal",
   },
@@ -85,11 +99,15 @@ const CONTRACT_ERROR_MAP: Record<number, Omit<DecodedError, "raw">> = {
   },
   13: {
     title: "Vault Locked",
+    description:
+      "The vault is locked and cannot accept deposits or withdrawals right now.",
     description: "The vault is locked and cannot accept deposits or withdrawals right now.",
     severity: "error",
   },
   14: {
     title: "Deadline Exceeded",
+    description:
+      "The transaction deadline passed before it could be included in a ledger.",
     description: "The transaction deadline passed before it could be included in a ledger.",
     severity: "error",
   },
@@ -101,6 +119,8 @@ const CONTRACT_ERROR_MAP: Record<number, Omit<DecodedError, "raw">> = {
   },
   403: {
     title: "Forbidden",
+    description:
+      "You are not authorised to access or modify this resource.",
     description: "You are not authorised to access or modify this resource.",
     severity: "fatal",
   },
@@ -111,6 +131,8 @@ const CONTRACT_ERROR_MAP: Record<number, Omit<DecodedError, "raw">> = {
   },
   500: {
     title: "Internal Contract Error",
+    description:
+      "An unexpected error occurred inside the contract. Please report this.",
     description: "An unexpected error occurred inside the contract. Please report this.",
     severity: "fatal",
   },
@@ -130,31 +152,45 @@ const STRING_ERROR_MAP: Record<string, Omit<DecodedError, "raw">> = {
   },
   INVALID_SIGNATURE: {
     title: "Invalid Signature",
+    description:
+      "The wallet signature could not be verified. Please try signing again.",
     description: "The wallet signature could not be verified. Please try signing again.",
     severity: "fatal",
   },
   INVALID_NONCE: {
     title: "Expired Nonce",
+    description:
+      "The authentication nonce has expired. Please reconnect your wallet.",
     description: "The authentication nonce has expired. Please reconnect your wallet.",
     severity: "error",
   },
   MISSING_WALLET_AUTH: {
     title: "Wallet Auth Missing",
+    description:
+      "No wallet authentication was provided with this request.",
     description: "No wallet authentication was provided with this request.",
     severity: "error",
   },
   ERR_INTERNAL_SERVER_ERROR: {
     title: "Internal Server Error",
+    description:
+      "An unexpected server-side error occurred. Please try again later.",
     description: "An unexpected server-side error occurred. Please try again later.",
     severity: "fatal",
   },
   ERR_TOO_MANY_REQUESTS: {
     title: "Rate Limited",
+    description:
+      "You have sent too many requests. Please wait a moment before retrying.",
     description: "You have sent too many requests. Please wait a moment before retrying.",
     severity: "warning",
   },
   ERR_NOT_IMPLEMENTED: {
     title: "Not Implemented",
+    description:
+      "This feature is not yet available on the current network.",
+    severity: "warning",
+  },
     description: "This feature is not yet available on the current network.",
     severity: "warning",
   },
@@ -166,11 +202,15 @@ const STRING_ERROR_MAP: Record<string, Omit<DecodedError, "raw">> = {
   },
   NETWORK_ERROR: {
     title: "Network Error",
+    description:
+      "Could not reach the Soroban RPC endpoint. Check your connection.",
     description: "Could not reach the Soroban RPC endpoint. Check your connection.",
     severity: "error",
   },
   INSUFFICIENT_GAS: {
     title: "Insufficient XLM for Fees",
+    description:
+      "Your account does not have enough XLM to cover the transaction fee.",
     description: "Your account does not have enough XLM to cover the transaction fee.",
     severity: "error",
     docsUrl: "https://docs.stellarstream.io/errors/insufficient-gas",
@@ -185,6 +225,20 @@ const FALLBACK_DECODED: Omit<DecodedError, "raw"> = {
 };
 
 // ─── XDR result string parser ─────────────────────────────────────────────────
+// Handles:
+//   "Error(Contract, #5)"  /  "HostError: Error(Contract, #5)"
+//   Plain numeric strings: "404"
+//   Known string keys embedded anywhere in the message
+
+function extractCodeFromXdr(xdrOrMessage: string): string | number {
+  const contractMatch = xdrOrMessage.match(
+    /Error\s*\(\s*Contract\s*,\s*#(\d+)\s*\)/i
+  );
+  if (contractMatch) return parseInt(contractMatch[1], 10);
+
+  const trimmed = xdrOrMessage.trim();
+  if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+
 // Soroban simulation/send errors typically look like:
 //   "Error(Contract, #5)"  or  "HostError: Error(Contract, #5)"
 //   "transaction simulation failed: ..."

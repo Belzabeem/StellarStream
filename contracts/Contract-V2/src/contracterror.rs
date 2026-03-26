@@ -37,4 +37,6 @@ pub enum Error {
     AssetNotWhitelisted = 29,
     /// penalty_bps exceeds 10000 (100%)
     InvalidPenalty = 30,
+    /// Arithmetic overflow in fixed-point math
+    Overflow = 31,
 }

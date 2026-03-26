@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 use soroban_sdk::xdr::ToXdr;
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, IntoVal, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, IntoVal, String, Symbol, Vec};
 
 mod contracterror;
 mod storage;
@@ -21,6 +21,10 @@ use v1_interface::Client as V1Client;
 
 #[contract]
 pub struct Contract;
+
+const CONTRACT_VERSION: u32 = 2;
+const CONTRACT_METADATA_URI: &str =
+    "https://raw.githubusercontent.com/Emmyt24/StellarStream/main/contracts/Contract-V2/contract-metadata.json";
 
 #[soroban_sdk::contractclient(name = "VaultClient")]
 pub trait VaultTrait {
@@ -44,6 +48,14 @@ impl Contract {
 
     pub fn admin(env: Env) -> Address {
         storage::get_admin(&env)
+    }
+
+    pub fn version(_env: Env) -> u32 {
+        CONTRACT_VERSION
+    }
+
+    pub fn metadata(env: Env) -> String {
+        String::from_str(&env, CONTRACT_METADATA_URI)
     }
 
     // ----------------------------------------------------------------

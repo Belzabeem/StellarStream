@@ -405,3 +405,220 @@ pub struct StreamSplitUpdatedEvent {
     pub split_bps: u32,
     pub timestamp: u64,
 }
+
+// ----------------------------------------------------------------
+// Issue #378 — Streaming Swap (DEX Integration)
+// ----------------------------------------------------------------
+
+/// Arguments for creating a stream with an automatic DEX swap.
+/// The sender provides `amount_in` of `asset_in`, which is swapped to
+/// `asset_out` via a Soroban AMM before initializing the stream.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SwapStreamArgs {
+    /// The sender address (must authorize this call)
+    pub sender: Address,
+    /// The receiver address (receives the streamed asset_out)
+    pub receiver: Address,
+    /// Amount of asset_in to deposit and swap
+    pub amount_in: i128,
+    /// Asset being deposited (e.g., XLM)
+    pub asset_in: Address,
+    /// Asset to receive after swap (e.g., USDC) - this is the streamed asset
+    pub asset_out: Address,
+    /// Minimum amount of asset_out to receive after swap (slippage protection)
+    pub min_amount_out: i128,
+    /// Slippage tolerance in basis points (0-10000, e.g., 50 = 0.5%)
+    /// This is an additional safety check beyond min_amount_out
+    pub slippage_tolerance_bps: u32,
+    /// When the swap must be executed by (Unix timestamp)
+    pub swap_deadline: u64,
+    /// Stream start time (Unix timestamp)
+    pub start_time: u64,
+    /// Stream end time (Unix timestamp)
+    pub end_time: u64,
+    /// Optional cliff time for the stream
+    pub cliff_time: u64,
+    /// Optional vault address for yield-bearing streams
+    pub vault_address: Option<Address>,
+    /// Whether to enable yield on the stream
+    pub yield_enabled: bool,
+    /// Who receives accrued vault yield: 0 = Sender, 1 = Receiver, 2 = Treasury
+    pub yield_recipient: u32,
+    /// Address that receives a split of every withdrawal
+    pub split_address: Option<Address>,
+    /// Fraction of each withdrawal routed to split_address (0-9999 bps)
+    pub split_bps: u32,
+    /// 0 = Unilateral, 1 = Mutual cancellation
+    pub cancellation_type: u32,
+}
+
+/// Result of a swap operation returned to the caller
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SwapResult {
+    /// Amount of asset_in that was swapped
+    pub amount_in: i128,
+    /// Amount of asset_out received from the swap
+    pub amount_out: i128,
+    /// Price impact in basis points (e.g., 100 = 1% price impact)
+    pub price_impact_bps: i128,
+}
+
+/// Event emitted when a swap stream is created
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SwapStreamCreatedEvent {
+    pub stream_id: u64,
+    pub sender: Address,
+    pub receiver: Address,
+    pub asset_in: Address,
+    pub asset_out: Address,
+    pub amount_in: i128,
+    pub amount_out: i128,
+    pub min_amount_out: i128,
+    pub timestamp: u64,
+}
+
+/// DEX pool information for swap operations
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct DexPoolInfo {
+    /// The DEX contract address
+    pub dex_address: Address,
+    /// The first asset in the pool (token address or None for native XLM)
+    pub token_a: Option<Address>,
+    /// The second asset in the pool
+    pub token_b: Address,
+    /// Pool fee in basis points (e.g., 30 = 0.3% fee)
+    pub fee_bps: u32,
+}
+
+// ----------------------------------------------------------------
+// Issue #377 — Push-Pull Rate Re-balancing
+// ----------------------------------------------------------------
+
+/// Represents a pending rate update proposal for a stream.
+/// This is stored temporarily with a 7-day TTL.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PendingRateUpdate {
+    /// The new proposed rate (amount per second)
+    pub new_rate: i128,
+    /// Unix timestamp when the proposal was created
+    pub proposed_at: u64,
+    /// Address that proposed the change (always the sender)
+    pub proposed_by: Address,
+    /// Original end time before the change
+    pub original_end_time: u64,
+    /// Original total amount before the change
+    pub original_total_amount: i128,
+}
+
+/// Event emitted when a rate update is proposed
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RateUpdateProposedEvent {
+    pub stream_id: u64,
+    pub proposed_by: Address,
+    pub current_rate: i128,
+    pub new_rate: i128,
+    pub new_end_time: u64,
+    pub expires_at: u64,
+    pub timestamp: u64,
+}
+
+/// Event emitted when a rate update is accepted
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RateUpdateAcceptedEvent {
+    pub stream_id: u64,
+    pub accepted_by: Address,
+    pub new_rate: i128,
+    pub new_end_time: u64,
+    pub remaining_balance: i128,
+    pub timestamp: u64,
+}
+
+/// Event emitted when a rate update proposal is cancelled
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RateUpdateCancelledEvent {
+    pub stream_id: u64,
+    pub cancelled_by: Address,
+    pub reason: u32, // 0 = expired, 1 = manually cancelled
+    pub timestamp: u64,
+}
+
+// ----------------------------------------------------------------
+// Issue #409 — Pre-Flight Simulation Helper
+// ----------------------------------------------------------------
+
+/// Result of a stream creation simulation.
+/// This is a read-only dry-run that checks if stream creation would succeed.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SimulationResult {
+    /// Whether the stream creation would succeed
+    pub success: bool,
+    /// Estimated storage footprint in bytes
+    pub estimated_footprint_bytes: u32,
+    /// Estimated RAM usage in bytes
+    pub estimated_ram_bytes: u32,
+    /// Error code if simulation failed (0 = success)
+    pub error_code: u32,
+    /// Human-readable error message if simulation failed
+    pub error_message: String,
+    /// Current sender balance
+    pub sender_balance: i128,
+    /// Required balance (including protocol fee)
+    pub required_balance: i128,
+    /// Whether the sender has sufficient balance
+    pub has_sufficient_balance: bool,
+    /// Estimated protocol fee
+    pub estimated_protocol_fee: i128,
+}
+
+/// Detailed simulation report with all checks
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SimulationReport {
+    /// Overall success status
+    pub would_succeed: bool,
+    /// Balance check result
+    pub balance_check: SimulationCheck,
+    /// Storage check result
+    pub storage_check: SimulationCheck,
+    /// Parameter validation result
+    pub params_check: SimulationCheck,
+    /// Ledger footprint estimate
+    pub footprint: LedgerFootprint,
+}
+
+/// Individual simulation check result
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SimulationCheck {
+    /// Whether this check passed
+    pub passed: bool,
+    /// Error code if failed
+    pub error_code: u32,
+    /// Error message if failed
+    pub error_message: String,
+}
+
+/// Estimated ledger footprint for a stream
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct LedgerFootprint {
+    /// Instance storage bytes
+    pub instance_bytes: u32,
+    /// Persistent storage bytes
+    pub persistent_bytes: u32,
+    /// Estimated read operations
+    pub estimated_reads: u32,
+    /// Estimated write operations
+    pub estimated_writes: u32,
+    /// Estimated emit events size
+    pub event_bytes: u32,
+}

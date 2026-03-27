@@ -1,5 +1,5 @@
 use crate::contracterror::Error;
-use crate::types::StreamV2;
+use crate::types::{PendingRateUpdate, StreamV2};
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 
 const STATUS_ACTIVE: u8 = 0;
@@ -125,6 +125,20 @@ pub enum DataKeyV2 {
     // -- Issue #603 — Reentrancy Guard --------------------------------
     /// Set to true while split_multi_asset is executing; prevents reentrant calls
     Locked, // 24
+
+    // -- Issue #378 — Streaming Swap (DEX Integration) -----------------
+    /// Default DEX contract address for swap operations
+    DexAddress, // 25
+    /// DEX pool configuration for a specific asset pair (token_in, token_out)
+    DexPool(Address, Address), // 26
+    /// Whether swap streaming is enabled globally
+    SwapEnabled, // 27
+
+    // -- Issue #377 — Push-Pull Rate Re-balancing --------------------
+    /// Pending rate update for a stream (stream_id -> PendingRateUpdate)
+    PendingRateUpdate(u64), // 28
+    /// Timestamp when pending rate update was set (for TTL tracking)
+    PendingRateUpdateExpiry(u64), // 29
 }
 
 /// Global stream counter.
@@ -765,4 +779,123 @@ pub fn acquire_lock(env: &Env) -> Result<(), crate::contracterror::Error> {
 /// Release the reentrancy lock.
 pub fn release_lock(env: &Env) {
     env.storage().instance().remove(&DataKeyV2::Locked);
+}
+
+// ----------------------------------------------------------------
+// Issue #378 — Streaming Swap (DEX Integration)
+// ----------------------------------------------------------------
+
+use crate::types::DexPoolInfo;
+
+/// Set the default DEX contract address for swap operations.
+pub fn set_dex_address(env: &Env, dex_address: &Address) {
+    env.storage()
+        .instance()
+        .set(&DataKeyV2::DexAddress, dex_address);
+    bump_instance(env);
+}
+
+/// Get the configured DEX contract address, if set.
+pub fn get_dex_address(env: &Env) -> Option<Address> {
+    env.storage()
+        .instance()
+        .get(&DataKeyV2::DexAddress)
+}
+
+/// Set a specific DEX pool configuration for an asset pair.
+pub fn set_dex_pool(
+    env: &Env,
+    token_in: &Address,
+    token_out: &Address,
+    pool_info: &DexPoolInfo,
+) {
+    env.storage()
+        .instance()
+        .set(&DataKeyV2::DexPool(token_in.clone(), token_out.clone()), pool_info);
+    bump_instance(env);
+}
+
+/// Get the DEX pool configuration for an asset pair.
+pub fn get_dex_pool(
+    env: &Env,
+    token_in: &Address,
+    token_out: &Address,
+) -> Option<DexPoolInfo> {
+    env.storage()
+        .instance()
+        .get(&DataKeyV2::DexPool(token_in.clone(), token_out.clone()))
+}
+
+/// Enable or disable swap streaming globally.
+pub fn set_swap_enabled(env: &Env, enabled: bool) {
+    env.storage()
+        .instance()
+        .set(&DataKeyV2::SwapEnabled, &enabled);
+    bump_instance(env);
+}
+
+/// Check if swap streaming is enabled globally.
+pub fn is_swap_enabled(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKeyV2::SwapEnabled)
+        .unwrap_or(false) // Default to disabled
+}
+
+// ----------------------------------------------------------------
+// Issue #377 — Push-Pull Rate Re-balancing
+// ----------------------------------------------------------------
+
+/// TTL for pending rate updates (7 days in seconds)
+pub const RATE_UPDATE_TTL: u64 = 604_800;
+
+/// Set a pending rate update for a stream.
+pub fn set_pending_rate_update(env: &Env, stream_id: u64, update: &PendingRateUpdate) {
+    env.storage()
+        .instance()
+        .set(&DataKeyV2::PendingRateUpdate(stream_id), update);
+    env.storage()
+        .instance()
+        .set(&DataKeyV2::PendingRateUpdateExpiry(stream_id), &update.proposed_at);
+    bump_instance(env);
+}
+
+/// Get a pending rate update for a stream.
+pub fn get_pending_rate_update(env: &Env, stream_id: u64) -> Option<PendingRateUpdate> {
+    env.storage()
+        .instance()
+        .get(&DataKeyV2::PendingRateUpdate(stream_id))
+}
+
+/// Get the expiry timestamp of a pending rate update.
+pub fn get_pending_rate_update_expiry(env: &Env, stream_id: u64) -> Option<u64> {
+    env.storage()
+        .instance()
+        .get(&DataKeyV2::PendingRateUpdateExpiry(stream_id))
+}
+
+/// Check if a pending rate update has expired.
+pub fn is_pending_rate_update_expired(env: &Env, stream_id: u64) -> bool {
+    if let Some(expiry) = get_pending_rate_update_expiry(env, stream_id) {
+        let now = env.ledger().timestamp();
+        return now > expiry.saturating_add(RATE_UPDATE_TTL);
+    }
+    true // If no expiry found, consider it expired
+}
+
+/// Remove a pending rate update for a stream.
+pub fn remove_pending_rate_update(env: &Env, stream_id: u64) {
+    env.storage()
+        .instance()
+        .remove(&DataKeyV2::PendingRateUpdate(stream_id));
+    env.storage()
+        .instance()
+        .remove(&DataKeyV2::PendingRateUpdateExpiry(stream_id));
+}
+
+/// Check if a pending rate update exists for a stream.
+pub fn has_pending_rate_update(env: &Env, stream_id: u64) -> bool {
+    env.storage()
+        .instance()
+        .has(&DataKeyV2::PendingRateUpdate(stream_id))
 }

@@ -9,6 +9,7 @@ import historyRouter from "./history.routes.js";
 import invoiceReportRouter from "./invoice-report.routes.js";
 import verifyListRouter from "./verify-list.routes.js";
 import exportRouter from "./export.routes.js";
+import splitAnalyzeRouter from "./split-analyze.routes.js";
 import webhooksRouter from "./webhooks.routes.js";
 
 const router = Router();
@@ -29,6 +30,7 @@ router.use(historyRouter);
 router.use(invoiceReportRouter);
 router.use(verifyListRouter);
 router.use(exportRouter);
+router.use(splitAnalyzeRouter);
 router.use(webhooksRouter);
 
 export default router;

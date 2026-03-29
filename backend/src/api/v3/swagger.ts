@@ -55,6 +55,52 @@ const options: swaggerJsdoc.Options = {
             totalRows: { type: "integer", example: 1000 },
           },
         },
+        SplitAnalyzeRecipient: {
+          type: "object",
+          properties: {
+            address: { type: "string", example: "GABC...XYZ" },
+          },
+          required: ["address"],
+        },
+        SplitDuplicateGroup: {
+          type: "object",
+          properties: {
+            address: { type: "string", example: "GABC...XYZ" },
+            count: { type: "integer", example: 3 },
+            rowIndexes: {
+              type: "array",
+              items: { type: "integer", example: 0 },
+            },
+          },
+        },
+        SplitSuggestion: {
+          type: "object",
+          properties: {
+            type: {
+              type: "string",
+              enum: ["merge_duplicate_addresses", "high_fee_transaction"],
+            },
+            message: {
+              type: "string",
+              example: "Address GABC...XYZ appears 3 times. Merge into one row?",
+            },
+            severity: { type: "string", enum: ["info", "warning"] },
+            addresses: {
+              type: "array",
+              items: { type: "string", example: "GABC...XYZ" },
+            },
+            rowIndexes: {
+              type: "array",
+              items: { type: "integer", example: 0 },
+            },
+            feeRatio: {
+              type: "number",
+              example: 0.075,
+              description: "Estimated fee divided by total amount when fee analysis is available",
+            },
+          },
+          required: ["type", "message", "severity"],
+        },
         AutopilotSchedule: {
           type: "object",
           properties: {
@@ -253,6 +299,82 @@ const options: swaggerJsdoc.Options = {
               },
             },
             "400": { description: "Invalid input", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          },
+        },
+      },
+      "/split/analyze": {
+        post: {
+          summary: "Analyze a draft split for optimization suggestions",
+          description:
+            "Inspects draft split recipients for duplicate addresses and can optionally " +
+            "flag high-fee transactions when fee and total amount estimates are provided.",
+          operationId: "analyzeSplitDraft",
+          tags: ["Disbursement"],
+          security: [{ ApiKeyAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    recipients: {
+                      type: "array",
+                      minItems: 1,
+                      maxItems: 1000,
+                      items: { $ref: "#/components/schemas/SplitAnalyzeRecipient" },
+                    },
+                    estimatedFeeStroops: {
+                      type: "string",
+                      example: "750000",
+                      description: "Optional estimated fee in stroops",
+                    },
+                    totalAmountStroops: {
+                      type: "string",
+                      example: "10000000",
+                      description: "Optional total split amount in stroops",
+                    },
+                  },
+                  required: ["recipients"],
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Suggestions generated successfully",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      data: {
+                        type: "object",
+                        properties: {
+                          suggestions: {
+                            type: "array",
+                            items: { $ref: "#/components/schemas/SplitSuggestion" },
+                          },
+                          duplicateGroups: {
+                            type: "array",
+                            items: { $ref: "#/components/schemas/SplitDuplicateGroup" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid input",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
           },
         },
       },

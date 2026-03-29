@@ -34,6 +34,8 @@ import { bigintSerializer } from "./middleware/bigintSerializer.js";
 import { swaggerSpec } from "./swagger.js";
 import { swaggerV3Spec } from "./api/v3/swagger.js";
 import { initializeSchedulers } from "./schedulers.js";
+import { createSplitWorker } from "./workers/splitWorker.js";
+import { enqueueSplit, getSplitJobStatus } from "./lib/splitQueue.js";
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -183,6 +185,7 @@ async function start(): Promise<void> {
   await ensureRedis();
   scheduleSnapshotMaintenance();
   initializeSchedulers();
+  createSplitWorker();
   cleanupWorker.start();
   dataIntegrityWorker.start();
   yieldAccrualWorker.start();
@@ -228,6 +231,60 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 start().catch((err) => {
   console.error("Failed to start server:", err);
   process.exit(1);
+});
+
+/**
+ * @notice Route to enqueue a split_funds request
+ * @dev Adds the split to the Redis queue for serialized processing
+ * This prevents Stellar sequence number collisions during high concurrency
+ */
+app.post("/splits/enqueue", async (req, res) => {
+  const { streamId, sender, receiver, amount, asset } = req.body;
+
+  if (!streamId || !sender || !receiver || !amount || !asset) {
+    return res.status(400).json({
+      error: "streamId, sender, receiver, amount and asset are required",
+    });
+  }
+
+  try {
+    const jobId = await enqueueSplit({
+      streamId,
+      sender,
+      receiver,
+      amount,
+      asset,
+      requestedAt: new Date().toISOString(),
+    });
+
+    return res.status(202).json({
+      jobId,
+      status: "pending",
+      message: "Split request queued for processing",
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * @notice Route to check the status of a queued split job
+ * @dev Poll this endpoint to know when a split has been processed
+ */
+app.get("/splits/status/:jobId", async (req, res) => {
+  const { jobId } = req.params;
+
+  try {
+    const status = await getSplitJobStatus(jobId);
+
+    if (!status) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    return res.json(status);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 export default app;

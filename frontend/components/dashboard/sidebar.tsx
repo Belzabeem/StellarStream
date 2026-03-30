@@ -23,6 +23,8 @@ import {
   Rocket,
   Coins,
   FileText,
+  Share2,
+  ArrowRightLeft,
 } from "lucide-react";
 import { TransactionQueueManager } from "@/components/dashboard/TransactionQueueManager";
 
@@ -91,6 +93,11 @@ export function Sidebar({ onOpenAuditLog }: SidebarProps) {
       label: "Splitter",
       href: "/dashboard/splitter",
       icon: Share2,
+    },
+    {
+      label: "Compare Splits",
+      href: "/dashboard/split-comparison",
+      icon: ArrowRightLeft,
     },
     {
       label: "Transparency",

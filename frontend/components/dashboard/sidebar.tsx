@@ -3,11 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ComponentType } from "react";
+import { useWallet } from "@/lib/wallet-context";
+import { isSplitterV3EnabledForNetwork } from "@/lib/feature-flags";
 import {
   CirclePlus,
   Gauge,
   Settings,
   Waves,
+  Split,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -37,6 +40,11 @@ function isActive(pathname: string, href: string) {
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const { network } = useWallet();
+
+  const visibleNavItems = isSplitterV3EnabledForNetwork(network)
+    ? [...navItems, { label: "Splitter V3", href: "/dashboard/v3/splitter", icon: Split }]
+    : navItems;
 
   return (
     <>
@@ -77,7 +85,7 @@ export function Sidebar() {
 
         {/* Nav links */}
         <nav className="flex flex-1 flex-col gap-2">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(pathname, item.href);
             return (
@@ -156,7 +164,7 @@ export function Sidebar() {
       {/* ── Mobile bottom bar (unchanged) ── */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-white/5 px-3 py-2 backdrop-blur-2xl md:hidden">
         <nav className="mx-auto flex max-w-xl items-center justify-around gap-1">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(pathname, item.href);
             return (

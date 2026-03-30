@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { SimulationWaterfall } from "@/components/dashboard/simulation-waterfall";
+import { buildSimulationWaterfall } from "@/lib/simulation-waterfall";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface FormData {
@@ -445,17 +447,35 @@ function Step3({
   const ratePerSec  = calcRatePerSecond(form.totalAmount, durationSeconds);
   const displayRate = calcDisplayRate(ratePerSec, form.rateType);
   const endDate     = durationSeconds > 0 ? new Date(Date.now() + durationSeconds * 1000) : null;
+  const totalAmount = parseFloat(form.totalAmount) || 0;
+  const protocolFee = totalAmount * 0.003;
+  const networkFee = Math.max(0.00001, totalAmount * 0.0001);
+  const recipientAmount = Math.max(0, totalAmount - protocolFee - networkFee);
 
   const rows = [
     { label: "Asset",     value: `${asset?.icon ?? ""} ${form.asset}` },
     { label: "Recipient", value: form.recipientLabel
         ? `${form.recipientLabel} · ${form.recipientAddress.slice(0, 10)}…`
         : `${form.recipientAddress.slice(0, 14)}…` },
-    { label: "Total",     value: `${fmt(parseFloat(form.totalAmount) || 0)} ${form.asset}` },
+    { label: "Total",     value: `${fmt(totalAmount || 0)} ${form.asset}` },
     { label: "Rate",      value: `${fmt(displayRate)} ${form.asset} ${RATE_LABELS[form.rateType]}` },
     { label: "Duration",  value: form.durationPreset },
     { label: "End Date",  value: endDate ? fmtDate(endDate) : "—" },
   ];
+  const simulation = buildSimulationWaterfall({
+    senderLabel: "Connected Wallet",
+    protocolLabel: "StellarStream Router",
+    totalAmount,
+    protocolFee,
+    networkFee,
+    recipients: [
+      {
+        address: form.recipientAddress || "recipient",
+        label: form.recipientLabel || "Recipient",
+        amount: recipientAmount,
+      },
+    ],
+  });
 
   return (
     <div className="space-y-5">
@@ -472,6 +492,12 @@ function Step3({
           </div>
         ))}
       </div>
+
+      <SimulationWaterfall
+        asset={form.asset}
+        summary={simulation}
+        description="A step-by-step preview of how the signed transaction distributes funds, including estimated protocol and network fees."
+      />
 
       {/* Warning notice */}
       <div className="flex gap-3 rounded-2xl border border-orange-400/20 bg-orange-400/[0.05] px-4 py-3">

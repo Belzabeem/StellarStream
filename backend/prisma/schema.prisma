@@ -26,6 +26,7 @@ model Stream {
 
   @@index([sender])
   @@index([receiver])
+  @@index([status])
   @@index([streamId])
 }
 

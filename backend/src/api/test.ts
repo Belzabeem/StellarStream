@@ -1,13 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { StreamLifecycleService } from '../services/stream-lifecycle-service.js';
 import { toBigIntOrNull } from '../services/stream-lifecycle-service.js';
+import { sanitizeUnknown } from '../security/sanitize.js';
 
 const router = Router();
 const streamService = new StreamLifecycleService();
 
 router.post('/test-stream', async (req: Request, res: Response) => {
   try {
-    const { streamId, sender, receiver, amount } = req.body;
+    const { streamId, sender, receiver, amount } = sanitizeUnknown(req.body);
     
     if (!streamId || !sender || !receiver || !amount) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -32,7 +33,7 @@ router.post('/test-stream', async (req: Request, res: Response) => {
 
 router.post('/test-withdrawal', async (req: Request, res: Response) => {
   try {
-    const { streamId, amount } = req.body;
+    const { streamId, amount } = sanitizeUnknown(req.body);
     
     if (!streamId || !amount) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -53,7 +54,7 @@ router.post('/test-withdrawal', async (req: Request, res: Response) => {
 
 router.post('/test-cancellation', async (req: Request, res: Response) => {
   try {
-    const { streamId, toReceiver, toSender } = req.body;
+    const { streamId, toReceiver, toSender } = sanitizeUnknown(req.body);
     
     if (!streamId || !toReceiver || !toSender) {
       return res.status(400).json({ error: 'Missing required fields' });
